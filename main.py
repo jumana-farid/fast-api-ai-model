@@ -7,7 +7,7 @@ app = FastAPI()
 print("AI model is starting...")
 
 # =========================
-# LOAD & PROCESS DATA ON STARTUP
+# LOAD & PROCESS DATA
 # =========================
 
 def process_files():
@@ -20,13 +20,12 @@ def process_files():
     for file in all_files:
         print(f"Processing file: {file}")
 
-        # Read file without assuming headers
         if file.endswith(".xlsx"):
             df = pd.read_excel(file, header=None)
         else:
             df = pd.read_csv(file, header=None)
 
-        # Find row with UL1, UL2, UL3
+        # Find UL1, UL2, UL3 row
         header_row = None
         for i, row in df.iterrows():
             if set(["UL1", "UL2", "UL3"]).issubset(set(row.values)):
@@ -34,30 +33,25 @@ def process_files():
                 break
 
         if header_row is None:
-            print(f"Skipping {file}: UL1, UL2, UL3 not found.")
             continue
 
-        # Set headers and keep rows below
         df.columns = df.iloc[header_row]
         df = df[(header_row + 1):]
         df = df[["UL1", "UL2", "UL3"]]
 
-        # Convert to numeric
         df = df.apply(pd.to_numeric, errors="coerce")
         df = df.dropna(how="all")
 
         if df.empty:
-            print(f"Skipping {file}: no numeric data.")
             continue
 
-        # Lane status logic
         def lane_status(val):
             if val == 0:
                 return "Free"
             elif 0 < val < 22:
                 return "In use"
             else:
-                return "Occupied, please move to green lane"
+                return "Occupied"
 
         for ul in ["UL1", "UL2", "UL3"]:
             df[f"{ul}_status"] = df[ul].apply(lane_status)
@@ -70,7 +64,6 @@ def process_files():
         return pd.DataFrame()
 
 
-# Load once
 DATA = process_files()
 
 # =========================
@@ -79,17 +72,25 @@ DATA = process_files()
 
 @app.get("/")
 def home():
-    return {
-        "status": "API running",
-        "rows_loaded": len(DATA)
-    }
+    return {"status": "API running", "rows_loaded": len(DATA)}
+
 
 @app.get("/predict")
 def predict():
     """
-    Returns lane status for all processed files
+    Returns ONLY ONE prediction (UL1, UL2, UL3)
     """
     if DATA.empty:
         return {"error": "No valid data found"}
 
-    return DATA.to_dict(orient="records")
+    latest = DATA.iloc[-1]
+
+    return {
+        "UL1": latest["UL1"],
+        "UL2": latest["UL2"],
+        "UL3": latest["UL3"],
+        "UL1_status": latest["UL1_status"],
+        "UL2_status": latest["UL2_status"],
+        "UL3_status": latest["UL3_status"]
+    }
+
